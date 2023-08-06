@@ -1,0 +1,9 @@
+postgres:
+  host: localhost
+  port: 5432
+  user: postgres
+  password: scp
+  db_name: postgres
+  ssl_mode: disable
+
+telegram: 6205725186:AAFfnWUUclsCcGLR4Uq2U-2vXqQ3PjK1NO4
