@@ -20,8 +20,8 @@ const (
 type Bot interface {
 	Start() error
 	StartWithWebhook(link string) error
-	SendMessage(m *SendMessage) error
-	EditMessage(m *EditMessage) error
+	SendMessage(m *SendMessage) (int64, error)
+	EditMessage(m *EditMessage) (int64, error)
 	HandleMessages(handler func(m *Message) error)
 	Shutdown()
 }
@@ -96,9 +96,14 @@ func (b *bot) HandleMessages(handler func(m *Message) error) {
 	}
 }
 
-func (b *bot) SendMessage(m *SendMessage) error {
-	return retries.DoWithRetries(retryCount, retryWait, func() error {
-		if _, err := b.api.Send(tg.MessageConfig{
+func (b *bot) SendMessage(m *SendMessage) (int64, error) {
+	var (
+		msg tg.Message
+		id  int64
+		err error
+	)
+	err = retries.DoWithRetries(retryCount, retryWait, func() error {
+		if msg, err = b.api.Send(tg.MessageConfig{
 			BaseChat: tg.BaseChat{
 				ChatID:      m.ChatID,
 				ReplyMarkup: m.apiInlineKeyboard(),
@@ -108,13 +113,20 @@ func (b *bot) SendMessage(m *SendMessage) error {
 		}); err != nil {
 			return fmt.Errorf("%w: cannot send telegram message: %v", retries.ErrDoRetry, err)
 		}
+		id = int64(msg.MessageID)
 		return nil
 	})
+	return id, err
 }
 
-func (b *bot) EditMessage(m *EditMessage) error {
-	return retries.DoWithRetries(retryCount, retryWait, func() error {
-		if _, err := b.api.Send(tg.EditMessageTextConfig{
+func (b *bot) EditMessage(m *EditMessage) (int64, error) {
+	var (
+		msg tg.Message
+		id  int64
+		err error
+	)
+	err = retries.DoWithRetries(retryCount, retryWait, func() error {
+		if msg, err = b.api.Send(tg.EditMessageTextConfig{
 			BaseEdit: tg.BaseEdit{
 				ChatID:      m.ChatID,
 				MessageID:   int(m.MessageID),
@@ -125,8 +137,10 @@ func (b *bot) EditMessage(m *EditMessage) error {
 		}); err != nil {
 			return fmt.Errorf("%w: cannot edit telegram message: %v", retries.ErrDoRetry, err)
 		}
+		id = int64(msg.MessageID)
 		return nil
 	})
+	return id, err
 }
 
 func (b *bot) Shutdown() {

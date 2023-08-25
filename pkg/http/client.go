@@ -8,6 +8,7 @@ import (
 	"main/pkg/retries"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -137,9 +138,23 @@ func UnmarshalResponse(buf []byte, resp any) error {
 }
 
 func MustParseQuery(query string) url.Values {
-	parsed, err := url.ParseQuery(query)
+	parts := strings.Split(query, "?")
+	part := parts[len(parts)-1]
+	parsed, err := url.ParseQuery(part)
 	if err != nil {
 		panic(err)
 	}
 	return parsed
+}
+
+func TrimQuery(s string) string {
+	parts := strings.Split(s, "?")
+	if len(parts) == 0 {
+		return s
+	}
+	return parts[0]
+}
+
+func HasQuery(s string) bool {
+	return strings.Contains(s, "?")
 }

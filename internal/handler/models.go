@@ -7,13 +7,13 @@ import (
 	"main/pkg/telegram"
 )
 
-type VacancyForm struct {
+type subVacancy struct {
 	Area       string
 	Experience string
 	Keywords   string
 }
 
-func (f *VacancyForm) IsFilled() bool {
+func (f *subVacancy) IsFilled() bool {
 	return f.Area != "" && f.Experience != "" && f.Keywords != ""
 }
 
@@ -23,19 +23,19 @@ func newStartMessage(chatID int64) *telegram.SendMessage {
 	keyboard := telegram.NewInlineKeyboard(telegram.InColButtonsMarkup,
 		telegram.InlineKeyboardButton{
 			Text:    "Подписаться 📩",
-			Command: "/dialog/sub",
+			Command: "/sub",
 		},
 		telegram.InlineKeyboardButton{
 			Text:    "Отписаться 📤",
-			Command: "/dialog/unsub",
+			Command: "/unsub",
 		},
 		telegram.InlineKeyboardButton{
 			Text:    "Контакты 🍪",
-			Command: "/dialog/contacts",
+			Command: "/contacts",
 		},
 		telegram.InlineKeyboardButton{
 			Text:    "Справка 💭",
-			Command: "/dialog/man",
+			Command: "/man",
 		})
 
 	return &telegram.SendMessage{
@@ -46,9 +46,18 @@ func newStartMessage(chatID int64) *telegram.SendMessage {
 }
 
 func newContactsMessage(chatID int64) *telegram.SendMessage {
+	text := `Разработчик 🍪 @ushakovn 🍪`
+
+	keyboard := telegram.NewInlineKeyboard(telegram.InColButtonsMarkup,
+		telegram.InlineKeyboardButton{
+			Text:    "Назад 🔍",
+			Command: "/back",
+		})
+
 	return &telegram.SendMessage{
-		ChatID: chatID,
-		Text:   `Разработчик 🍪 @ushakovn 🍪`,
+		ChatID:   chatID,
+		Text:     text,
+		Keyboard: keyboard,
 	}
 }
 
@@ -59,21 +68,39 @@ func newSubMessage(chatID int64) *telegram.SendMessage {
 	keyboard := telegram.NewInlineKeyboard(telegram.InColButtonsMarkup,
 		telegram.InlineKeyboardButton{
 			Text:    "Местоположение 🌎",
-			Command: "/action/sub/form/area",
+			Command: "/area",
 		},
 		telegram.InlineKeyboardButton{
 			Text:    "Опыт работы 👔",
-			Command: "/action/sub/form/experience",
+			Command: "/experience",
 		},
 		telegram.InlineKeyboardButton{
 			Text:    "Название вакансии 🌠",
-			Command: "action/sub/form/keywords",
+			Command: "/keywords",
+		},
+		telegram.InlineKeyboardButton{
+			Text:    "Назад 🔍",
+			Command: "/back",
 		})
 
 	return &telegram.SendMessage{
 		ChatID:   chatID,
 		Text:     text,
 		Keyboard: keyboard,
+	}
+}
+
+func newUnsubCompleteMessage(chatID int64) *telegram.SendMessage {
+	keyboard := telegram.NewInlineKeyboard(telegram.InColButtonsMarkup,
+		telegram.InlineKeyboardButton{
+			Text:    "Назад 🔍",
+			Command: "/back",
+		})
+
+	return &telegram.SendMessage{
+		ChatID:   chatID,
+		Keyboard: keyboard,
+		Text:     fmt.Sprintf(`Вы успешно отписались от выбранной рассылки вакансий ❗️`),
 	}
 }
 
@@ -85,10 +112,15 @@ func newUnsubMessage(chatID int64, subs []*model.Subscription) *telegram.SendMes
 
 	for index, sub := range subs {
 		buttons = append(buttons, telegram.InlineKeyboardButton{
-			Text:    fmt.Sprintf("%d 📌 %s", index+1, sub.Keywords),
-			Command: fmt.Sprintf("action/unsub/sub?id=%s", sub.SubscriptionID),
+			Text:    fmt.Sprintf("%d 🌠️ %s", index+1, sub.Keywords),
+			Command: fmt.Sprintf("/unsub?id=%s", sub.SubscriptionID),
 		})
 	}
+	buttons = append(buttons, telegram.InlineKeyboardButton{
+		Text:    "Назад 🔍",
+		Command: "/back",
+	})
+
 	keyboard := telegram.NewInlineKeyboard(
 		telegram.InColButtonsMarkup,
 		buttons...,
@@ -101,46 +133,24 @@ func newUnsubMessage(chatID int64, subs []*model.Subscription) *telegram.SendMes
 }
 
 func newManMessage(chatID int64) *telegram.SendMessage {
-	text := `Бот имеет следующие команды 📋`
+	text := `Бот имеет следующие команды 📑`
 
 	keyboard := telegram.NewInlineKeyboard(telegram.InColButtonsMarkup,
 		telegram.InlineKeyboardButton{
 			Text:    "Подписаться 📩",
-			Command: "/dialog/sub",
+			Command: "/sub",
 		},
 		telegram.InlineKeyboardButton{
 			Text:    "Отписаться 📤",
-			Command: "/dialog/unsub",
+			Command: "/unsub",
 		},
 		telegram.InlineKeyboardButton{
 			Text:    "Справка 💭",
-			Command: "/dialog/man",
-		})
-
-	return &telegram.SendMessage{
-		ChatID:   chatID,
-		Text:     text,
-		Keyboard: keyboard,
-	}
-}
-
-func newCoalesceMessage(m ...*telegram.SendMessage) *telegram.SendMessage {
-	for _, m := range m {
-		if m != nil {
-			return m
-		}
-	}
-	return nil
-}
-
-func newUndefinedMessage(chatID int64) *telegram.SendMessage {
-	text := `Команда не распознана 🔍
-Воспользуйтесь справкой`
-
-	keyboard := telegram.NewInlineKeyboard(telegram.InColButtonsMarkup,
+			Command: "/man",
+		},
 		telegram.InlineKeyboardButton{
-			Text:    "Справка 💭",
-			Command: "/dialog/man",
+			Text:    "Назад 🔍",
+			Command: "/back",
 		})
 
 	return &telegram.SendMessage{
@@ -150,24 +160,21 @@ func newUndefinedMessage(chatID int64) *telegram.SendMessage {
 	}
 }
 
-func newResetMessage(chatID int64) *telegram.SendMessage {
-	return &telegram.SendMessage{
-		ChatID: chatID,
-		Text:   `Последние введенные команды были отменены ❗`,
-	}
-}
-
-func newFormAreaMessage(chatID int64) *telegram.SendMessage {
+func newAreaMessage(chatID int64) *telegram.SendMessage {
 	text := `Выберите местоположение из доступных 🌎`
 
 	keyboard := telegram.NewInlineKeyboard(telegram.InColButtonsMarkup,
 		telegram.InlineKeyboardButton{
 			Text:    "Москва",
-			Command: "action/sub/form/area?id=1",
+			Command: "/area?id=1",
 		},
 		telegram.InlineKeyboardButton{
 			Text:    "Санкт-Петербург",
-			Command: "action/sub/form/area?id=2",
+			Command: "/area?id=2",
+		},
+		telegram.InlineKeyboardButton{
+			Text:    "Назад 🔍",
+			Command: "/back",
 		})
 
 	return &telegram.SendMessage{
@@ -177,21 +184,25 @@ func newFormAreaMessage(chatID int64) *telegram.SendMessage {
 	}
 }
 
-func newFormExperienceMessage(chatID int64) *telegram.SendMessage {
+func newExperienceMessage(chatID int64) *telegram.SendMessage {
 	text := `Выберите опыт работы из доступных 👔`
 
 	keyboard := telegram.NewInlineKeyboard(telegram.InColButtonsMarkup,
 		telegram.InlineKeyboardButton{
 			Text:    "От 1 до 3 лет",
-			Command: "action/sub/form/experience?id=between1And3",
+			Command: "/experience?id=between1And3",
 		},
 		telegram.InlineKeyboardButton{
 			Text:    "От 3 до 6 лет",
-			Command: "action/sub/form/experience?id=between3And6",
+			Command: "/experience?id=between3And6",
 		},
 		telegram.InlineKeyboardButton{
 			Text:    "Без коммерческого опыта",
-			Command: "action/sub/form/form/experience?id=noExperience",
+			Command: "/experience?id=noExperience",
+		},
+		telegram.InlineKeyboardButton{
+			Text:    "Назад 🔍",
+			Command: "/back",
 		})
 
 	return &telegram.SendMessage{
@@ -201,31 +212,20 @@ func newFormExperienceMessage(chatID int64) *telegram.SendMessage {
 	}
 }
 
-func newFormKeywordsMessage(chatID int64) *telegram.SendMessage {
+func newKeywordsMessage(chatID int64) *telegram.SendMessage {
 	return &telegram.SendMessage{
 		ChatID: chatID,
 		Text:   `Укажите название вакансии 🌠`,
 	}
 }
 
-func newFormFillFieldsMessage(chatID int64) *telegram.SendMessage {
-	return &telegram.SendMessage{
-		ChatID: chatID,
-		Text:   `Укажите оставшиеся поля ✅`,
-	}
-}
-
-func newFormConfirmCancelMessage(chatID int64) *telegram.SendMessage {
-	text := `Подтвердите подписку на вакансию или отмените выбор ✉️`
+func newFillFieldsMessage(chatID int64) *telegram.SendMessage {
+	text := `Укажите оставшиеся поля ✅`
 
 	keyboard := telegram.NewInlineKeyboard(telegram.InColButtonsMarkup,
 		telegram.InlineKeyboardButton{
-			Text:    "Подтвердить ✅",
-			Command: "action/sub/form/confirm",
-		},
-		telegram.InlineKeyboardButton{
-			Text:    "Отмена ❗",
-			Command: "action/sub/form/cancel",
+			Text:    "Назад 🔍",
+			Command: "/back",
 		})
 
 	return &telegram.SendMessage{
@@ -235,24 +235,48 @@ func newFormConfirmCancelMessage(chatID int64) *telegram.SendMessage {
 	}
 }
 
-func newFormCancelMessage(chatID int64) *telegram.SendMessage {
+func newConfirmCancelMessage(chatID int64) *telegram.SendMessage {
+	text := `Подтвердите подписку на вакансию или отмените выбор ✉️`
+
+	keyboard := telegram.NewInlineKeyboard(telegram.InColButtonsMarkup,
+		telegram.InlineKeyboardButton{
+			Text:    "Подтвердить ✅",
+			Command: "/confirm",
+		},
+		telegram.InlineKeyboardButton{
+			Text:    "Отмена ❗",
+			Command: "/cancel",
+		},
+		telegram.InlineKeyboardButton{
+			Text:    "Назад 🔍",
+			Command: "/back",
+		})
+
+	return &telegram.SendMessage{
+		ChatID:   chatID,
+		Text:     text,
+		Keyboard: keyboard,
+	}
+}
+
+func newCancelMessage(chatID int64) *telegram.SendMessage {
 	return &telegram.SendMessage{
 		ChatID: chatID,
 		Text:   `Вы отменили создание подписки на рассылку вакансий ❗`,
 	}
 }
 
-func newFormConfirmMessage(chatID int64) *telegram.SendMessage {
+func newConfirmMessage(chatID int64) *telegram.SendMessage {
 	return &telegram.SendMessage{
 		ChatID: chatID,
 		Text: `Вы подтвердили создание подписки на вакансии ✅
-Список актуальных вакансий сейчас будет подобран.`,
+Список актуальных вакансий сейчас будет подобран 🍪`,
 	}
 }
 
 func newVacancyMessage(chatID int64, item *fetcher.VacancyResponseItem) *telegram.SendMessage {
 	const (
-		t = `⚡
+		t = `🌠🌠🌠🌠
 Вакансия: %s
 Город: %s
 Зарплата: %d - %d (%s)
@@ -264,7 +288,7 @@ func newVacancyMessage(chatID int64, item *fetcher.VacancyResponseItem) *telegra
 Тип занятости: %s
 Опубликована: %s
 Ссылка на вакансию: %s
-⚡`
+👔👔👔👔`
 	)
 	text := fmt.Sprintf(t,
 		item.Name,

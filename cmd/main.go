@@ -41,10 +41,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("cannot create new handler: %v", err)
 	}
+	defer h.Shutdown()
 
-	go h.HandleMessages(ctx)
-	//go h.HandleSubscriptions(ctx)
-	//go h.HandleTasks(ctx)
+	go h.HandleMessagesContinuously(ctx)
+	go h.HandleSubscriptionsContinuously(ctx)
+	go h.HandleTasksContinuously(ctx)
 
 	exit := make(chan os.Signal)
 	signal.Notify(exit, syscall.SIGINT, syscall.SIGTERM)

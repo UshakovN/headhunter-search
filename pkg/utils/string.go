@@ -1,9 +1,10 @@
 package utils
 
-import "strings"
-
-func TrimPrefixIfExist(s string, prefix string) (string, bool) {
-	st := strings.TrimPrefix(s, prefix)
-	ok := strings.HasPrefix(s, prefix)
-	return st, ok
+func OneOf(f func(s string) bool, s ...string) bool {
+	for _, s := range s {
+		if f(s) {
+			return true
+		}
+	}
+	return false
 }

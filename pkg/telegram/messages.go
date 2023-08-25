@@ -17,10 +17,9 @@ type Message struct {
 }
 
 type SendMessage struct {
-	MessageID int64
-	ChatID    int64
-	Text      string
-	Keyboard  *InlineKeyboard
+	ChatID   int64
+	Text     string
+	Keyboard *InlineKeyboard
 }
 
 type EditMessage struct {
@@ -103,4 +102,13 @@ func (m *EditMessage) apiInlineKeyboard() *tg.InlineKeyboardMarkup {
 		return nil
 	}
 	return &m.Keyboard.markup
+}
+
+func (m *SendMessage) ToEditMessage(messageID int64) *EditMessage {
+	return &EditMessage{
+		MessageID: messageID,
+		ChatID:    m.ChatID,
+		Text:      m.Text,
+		Keyboard:  m.Keyboard,
+	}
 }

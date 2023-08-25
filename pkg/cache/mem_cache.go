@@ -3,6 +3,7 @@ package cache
 import "sync"
 
 type MemCache[K comparable, T any] interface {
+	Delete(key K)
 	Exist(key K) bool
 	Get(key K) T
 	Put(key K, value T)
@@ -18,6 +19,12 @@ func NewMemCache[K comparable, T any]() MemCache[K, T] {
 type memCache[K comparable, T any] struct {
 	mtx sync.RWMutex
 	m   map[K]T
+}
+
+func (c *memCache[K, T]) Delete(key K) {
+	c.mtx.Lock()
+	defer c.mtx.Unlock()
+	delete(c.m, key)
 }
 
 func (c *memCache[K, T]) Exist(key K) bool {
