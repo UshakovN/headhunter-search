@@ -1,50 +1,52 @@
 package main
 
 import (
-  "flag"
-  "main/config"
-  "main/internal/fetcher"
-  "main/internal/handler"
-  "main/internal/storage"
-  "main/pkg/postgres"
-  "main/pkg/telegram"
-  "os"
-  "os/signal"
-  "syscall"
+	"flag"
+	"main/config"
+	"main/internal/fetcher"
+	"main/internal/handler"
+	"main/internal/storage"
+	"main/pkg/postgres"
+	"main/pkg/telegram"
+	"os"
+	"os/signal"
+	"syscall"
 
-  log "github.com/sirupsen/logrus"
-  "golang.org/x/net/context"
+	log "github.com/sirupsen/logrus"
+	"golang.org/x/net/context"
 )
 
 func main() {
-  file := flag.String("config", "./config/config.yaml", "config file name path")
-  flag.Parse()
+	file := flag.String("config", "./config/config.yaml", "config file name path")
+	flag.Parse()
 
-  ctx := context.Background()
+	ctx := context.Background()
 
-  c, err := config.NewConfig(*file)
-  if err != nil {
-    log.Fatalf("cannot create new config: %v", err)
-  }
-  b, err := telegram.NewBot(ctx, c.Telegram)
-  if err != nil {
-    log.Fatalf("cannot create new telegram bot: %v", err)
-  }
-  p, err := postgres.NewClient(ctx, c.Postgres)
-  if err != nil {
-    log.Fatalf("cannot create new postgres client: %v", err)
-  }
-  s := storage.NewStorage(ctx, p)
-  f := fetcher.NewFetcher(ctx)
+	c, err := config.NewConfig(*file)
+	if err != nil {
+		log.Fatalf("cannot create new config: %v", err)
+	}
+	b, err := telegram.NewBot(ctx, c.Telegram)
+	if err != nil {
+		log.Fatalf("cannot create new telegram bot: %v", err)
+	}
+	p, err := postgres.NewClient(ctx, c.Postgres)
+	if err != nil {
+		log.Fatalf("cannot create new postgres client: %v", err)
+	}
+	s := storage.NewStorage(ctx, p)
+	f := fetcher.NewFetcher(ctx)
 
-  h, err := handler.NewHandler(ctx, b, f, s)
-  if err != nil {
-    log.Fatalf("cannot create new handler: %v", err)
-  }
-  go h.HandleMessages(ctx)
-  go h.HandleSubscriptions(ctx)
+	h, err := handler.NewHandler(ctx, b, f, s)
+	if err != nil {
+		log.Fatalf("cannot create new handler: %v", err)
+	}
 
-  exit := make(chan os.Signal)
-  signal.Notify(exit, syscall.SIGINT, syscall.SIGTERM)
-  <-exit
+	go h.HandleMessages(ctx)
+	//go h.HandleSubscriptions(ctx)
+	//go h.HandleTasks(ctx)
+
+	exit := make(chan os.Signal)
+	signal.Notify(exit, syscall.SIGINT, syscall.SIGTERM)
+	<-exit
 }
