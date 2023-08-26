@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"main/internal/fetcher"
 	"main/internal/model"
+	"main/pkg/str"
 	"main/pkg/telegram"
+	"main/pkg/utils"
+	"strings"
 )
 
 type vacancy struct {
@@ -274,40 +277,101 @@ func newConfirmMessage(chatID int64) *telegram.SendMessage {
 	}
 }
 
-func newVacancyMessage(chatID int64, item *fetcher.VacancyResponseItem) *telegram.SendMessage {
-	const (
-		t = `🌠🌠🌠🌠
-Вакансия: %s
-Город: %s
-Зарплата: %d - %d (%s)
-Статус: %s
-Компания: %s (%s)
-Обязанности: %s
-Требуемые навыки: %s
-Требуемый опыт работы: %s
-Тип занятости: %s
-Опубликована: %s
-Ссылка на вакансию: %s
-👔👔👔👔`
-	)
-	text := fmt.Sprintf(t,
-		item.Name,
-		item.Area.Name,
-		item.Salary.From,
-		item.Salary.To,
-		item.Salary.Currency,
-		item.Type.Name,
-		item.Employer.Name,
-		item.Employer.Url,
-		item.Snippet.Responsibility,
-		item.Snippet.Requirement,
-		item.Experience.Name,
-		item.Employment.Name,
-		item.PublishedAt,
-		item.Url,
-	)
+func newVacancyMessage(chatID int64, keywords string, item *fetcher.VacancyResponseItem) *telegram.SendMessage {
+	s := strings.Builder{}
+
+	url := fmt.Sprintf("<a href=\"%s\">Новая вакансия</a>", item.AlternateUrl)
+	s.WriteString(fmt.Sprintf("🌠📨🌠📨🌠 %s\n\n", url))
+
+	s.WriteString(fmt.Sprintf("<b>🍪 Подписка</b>\n%s\n\n", str.Sanitize(keywords)))
+
+	s.WriteString(fmt.Sprintf("<b>👔 Название</b>\n%s\n\n", str.Sanitize(item.Name)))
+
+	if area := item.Area; area != nil && area.Name != "" {
+		s.WriteString(fmt.Sprintf("<b>🌎 Город</b>\n%s\n\n", str.Sanitize(area.Name)))
+	}
+
+	if salary := item.Salary; salary != nil && salary.Currency != "" {
+		curr := str.Sanitize(salary.Currency)
+		curr = strings.ToUpper(curr)
+
+		if fork := salary.From > 0 && salary.To > 0; fork {
+			s.WriteString(fmt.Sprintf("<b>💶 Зарплата</b>\nОт %d до %d (%s)", salary.From, salary.To, curr))
+		} else if from := salary.From; from > 0 {
+			s.WriteString(fmt.Sprintf("<b>💶 Зарплата</b>\nОт %d (%s)", from, curr))
+		} else if to := salary.To; to > 0 {
+			s.WriteString(fmt.Sprintf("<b>💶 Зарплата</b>\nДо %d (%s)", to, curr))
+		}
+
+		if salary.Gross {
+			s.WriteString(" <i>до вычета НДФЛ</i>")
+		}
+		s.WriteString("\n\n")
+	}
+
+	if employer := item.Employer; employer != nil && employer.Name != "" { // TODO: add employer url
+		s.WriteString(fmt.Sprintf("<b>⭐ Компания</b>\n%s\n\n", str.Sanitize(employer.Name)))
+	}
+
+	if snippet := item.Snippet; snippet != nil {
+		if req := snippet.Requirement; req != "" {
+			s.WriteString(fmt.Sprintf("<b>👨‍💼 Требуемые навыки </b>\n%s\n\n", str.Sanitize(req)))
+		}
+		if resp := snippet.Responsibility; resp != "" {
+			s.WriteString(fmt.Sprintf("<b>💡 Обязанности</b>\n%s\n\n", str.Sanitize(resp)))
+		}
+	}
+
+	if exp := item.Experience; exp != nil {
+		if exp := exp.Name; exp != "" {
+			s.WriteString(fmt.Sprintf("<b>⏳ Требуемый опыт работы</b>\n%s\n\n", str.Sanitize(exp)))
+		}
+	}
+
+	if hhUrl := item.AlternateUrl; hhUrl != "" {
+		hhUrl := fmt.Sprintf("<a href=\"%s\">Ссылка</a>", hhUrl)
+		s.WriteString(fmt.Sprintf("<b>📑 Ссылка на вакансию</b>\n%s\n\n", hhUrl))
+	}
+
+	if pub := item.PublishedAt; pub != "" {
+		const (
+			hhTimeLayout  = "2006-01-02T15:04:05-0700"
+			msgTimeLayout = "02-01-2006 15:04"
+		)
+		if pub, err := utils.TimeStrCast(pub, hhTimeLayout, msgTimeLayout); err == nil {
+			s.WriteString(fmt.Sprintf("<b>🕒 Вакансия опубликована</b>\n%s\n\n", pub))
+		}
+	}
+	s.WriteString("🌠📨🌠📨🌠\n\n")
+
+	if tags := str.BuildSentenceTags(keywords); len(tags) >= 0 {
+		for tagIndex, tag := range tags {
+			s.WriteString(fmt.Sprintf("<b>%s</b>", tag))
+
+			if tagIndex < len(tags)-1 {
+				s.WriteString(" ")
+			}
+		}
+		s.WriteString("\n")
+	}
+	text := s.String()
+
 	return &telegram.SendMessage{
 		ChatID: chatID,
 		Text:   text,
+	}
+}
+
+func isWrongVacancy(item *fetcher.VacancyResponseItem) bool {
+	switch {
+	case
+		item.Archived,
+		item.AlternateUrl == "",
+		item.Name == "",
+		item.Snippet == nil,
+		item.Employer == nil:
+		return true
+	default:
+		return false
 	}
 }

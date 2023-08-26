@@ -14,14 +14,13 @@ import (
 const (
 	retryCount = 3
 	retryWait  = time.Second
-	parseMode  = "MarkdownV2"
 )
 
 type Bot interface {
 	Start() error
 	StartWithWebhook(link string) error
-	SendMessage(m *SendMessage) (int64, error)
-	EditMessage(m *EditMessage) (int64, error)
+	SendMessage(m *SendMessage, options ...MessageOption) (int64, error)
+	EditMessage(m *EditMessage, options ...MessageOption) (int64, error)
 	HandleMessages(handler func(m *Message) error)
 	Shutdown()
 }
@@ -96,20 +95,49 @@ func (b *bot) HandleMessages(handler func(m *Message) error) {
 	}
 }
 
-func (b *bot) SendMessage(m *SendMessage) (int64, error) {
+type messageOption struct {
+	parseMode parseMode
+}
+
+type MessageOption func(o *messageOption)
+
+func WithParseMode(mode parseMode) MessageOption {
+	return func(o *messageOption) {
+		o.parseMode = mode
+	}
+}
+
+func newMessageOption() *messageOption {
+	return &messageOption{
+		parseMode: HTMLParseMode,
+	}
+}
+
+func callMessageOptions(options ...MessageOption) *messageOption {
+	mo := newMessageOption()
+
+	for _, option := range options {
+		option(mo)
+	}
+	return mo
+}
+
+func (b *bot) SendMessage(m *SendMessage, options ...MessageOption) (int64, error) {
 	var (
 		msg tg.Message
 		id  int64
 		err error
 	)
+	mo := callMessageOptions(options...)
+
 	err = retries.DoWithRetries(retryCount, retryWait, func() error {
 		if msg, err = b.api.Send(tg.MessageConfig{
 			BaseChat: tg.BaseChat{
 				ChatID:      m.ChatID,
 				ReplyMarkup: m.apiInlineKeyboard(),
 			},
-			Text:      tg.EscapeText(parseMode, m.Text),
-			ParseMode: parseMode,
+			Text:      m.Text,
+			ParseMode: mo.parseMode.String(),
 		}); err != nil {
 			return fmt.Errorf("%w: cannot send telegram message: %v", retries.ErrDoRetry, err)
 		}
@@ -119,12 +147,14 @@ func (b *bot) SendMessage(m *SendMessage) (int64, error) {
 	return id, err
 }
 
-func (b *bot) EditMessage(m *EditMessage) (int64, error) {
+func (b *bot) EditMessage(m *EditMessage, options ...MessageOption) (int64, error) {
 	var (
 		msg tg.Message
 		id  int64
 		err error
 	)
+	mo := callMessageOptions(options...)
+
 	err = retries.DoWithRetries(retryCount, retryWait, func() error {
 		if msg, err = b.api.Send(tg.EditMessageTextConfig{
 			BaseEdit: tg.BaseEdit{
@@ -133,7 +163,7 @@ func (b *bot) EditMessage(m *EditMessage) (int64, error) {
 				ReplyMarkup: m.apiInlineKeyboard(),
 			},
 			Text:      m.Text,
-			ParseMode: parseMode,
+			ParseMode: mo.parseMode.String(),
 		}); err != nil {
 			return fmt.Errorf("%w: cannot edit telegram message: %v", retries.ErrDoRetry, err)
 		}

@@ -6,6 +6,7 @@ import (
 	"main/internal/chats"
 	"main/internal/model"
 	"main/pkg/http"
+	"main/pkg/str"
 	"main/pkg/telegram"
 	"main/pkg/tree"
 	"main/pkg/utils"
@@ -67,7 +68,7 @@ func (h *Handler) setChatsTrees() {
 				// try got sub id from query
 				if subID := http.MustParseQuery(input.Command).Get("id"); subID != "" {
 					// delete user subscription by id
-					if err := h.storage.DeleteChatSubscription(input.Ctx, utils.MustCast[int64](subID)); err != nil {
+					if err := h.storage.DeleteChatSubscription(input.Ctx, str.MustCast[int64](subID)); err != nil {
 						return 0, err
 					}
 					return h.bot.EditMessage(newUnsubCompleteMessage(input.ChatID).ToEditMessage(prevID))
@@ -297,7 +298,7 @@ func (h *Handler) HandleMessages(ctx context.Context, m *telegram.Message) error
 
 		defer func() {
 			// if link it /confirm or /cancel
-			if utils.OneOf(func(s string) bool {
+			if str.OneOf(func(s string) bool {
 				return s == string(link)
 			}, "confirm", "cancel", "stop") {
 
@@ -331,7 +332,7 @@ func (h *Handler) HandleMessages(ctx context.Context, m *telegram.Message) error
 		}
 
 		// if link it /area, /experience, /sub
-		if utils.OneOf(func(s string) bool {
+		if str.OneOf(func(s string) bool {
 			return strings.HasPrefix(string(link), s)
 		}, "area", "experience", "unsub") {
 

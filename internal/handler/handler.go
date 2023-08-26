@@ -128,6 +128,10 @@ func (h *Handler) sendVacanciesForSubscription(ctx context.Context, s *model.Cha
 		return fmt.Errorf("cannot fetch vacancies for request: %v", err)
 	}
 	for _, item := range resp.Items {
+		// if vacancy it is wrong
+		if isWrongVacancy(item) {
+			continue
+		}
 		// wait timer for chat id
 		h.chatsTimers.Wait(s.ChatID)
 
@@ -139,7 +143,7 @@ func (h *Handler) sendVacanciesForSubscription(ctx context.Context, s *model.Cha
 		if h.chatsSentVacs.Exist(s.ChatID) && h.chatsSentVacs.Get(s.ChatID).Exist(item.Id) {
 			continue
 		}
-		msg := newVacancyMessage(s.ChatID, item)
+		msg := newVacancyMessage(s.ChatID, s.Keywords, item)
 
 		if _, err = h.bot.SendMessage(msg); err != nil {
 			return fmt.Errorf("cannot send vacancy telegram bot message: %v", err)
@@ -166,6 +170,6 @@ func (h *Handler) HandleMessagesContinuously(ctx context.Context) {
 	})
 }
 
-func (h *Handler) Shutdown(ctx context.Context) {
+func (h *Handler) Shutdown() {
 	h.bot.Shutdown()
 }

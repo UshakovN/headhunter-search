@@ -62,68 +62,87 @@ type Response struct {
 	Items []*VacancyResponseItem `json:"items"`
 }
 
-type VacancyResponseItem struct {
+type VacancyArea struct {
 	Id   string `json:"id"`
 	Name string `json:"name"`
-	Area struct {
-		Id   string `json:"id"`
-		Name string `json:"name"`
-		Url  string `json:"url"`
-	} `json:"area"`
-	Salary struct {
-		From     int    `json:"from"`
-		To       int    `json:"to"`
-		Currency string `json:"currency"`
-		Gross    bool   `json:"gross"`
-	} `json:"salary"`
-	Type struct {
-		Id   string `json:"id"`
-		Name string `json:"name"`
-	} `json:"type"`
-	Address struct {
-		City     string `json:"city"`
-		Street   string `json:"street"`
-		Building string `json:"building"`
-		Raw      string `json:"raw"`
-		Metro    struct {
-			StationName string `json:"station_name"`
-			LineName    string `json:"line_name"`
-		} `json:"metro"`
-		MetroStations []struct {
-			StationName string `json:"station_name"`
-			LineName    string `json:"line_name"`
-		} `json:"metro_stations"`
-		Id string `json:"id"`
-	} `json:"address"`
-	PublishedAt       string `json:"published_at"`
-	CreatedAt         string `json:"created_at"`
-	Archived          bool   `json:"archived"`
-	ApplyAlternateUrl string `json:"apply_alternate_url"`
-	Url               string `json:"url"`
-	AlternateUrl      string `json:"alternate_url"`
-	Employer          struct {
-		Id           string `json:"id"`
-		Name         string `json:"name"`
-		Url          string `json:"url"`
-		AlternateUrl string `json:"alternate_url"`
-		LogoUrls     struct {
-			Original string `json:"original"`
-		} `json:"logo_urls"`
-		VacanciesUrl         string `json:"vacancies_url"`
-		AccreditedItEmployer bool   `json:"accredited_it_employer"`
-		Trusted              bool   `json:"trusted"`
-	} `json:"employer"`
-	Snippet struct {
-		Requirement    string `json:"requirement"`
-		Responsibility string `json:"responsibility"`
-	} `json:"snippet"`
-	ProfessionalRoles []struct {
-		Name string `json:"name"`
-	} `json:"professional_roles"`
-	Experience struct {
-		Name string `json:"name"`
-	} `json:"experience"`
-	Employment struct {
-		Name string `json:"name"`
-	} `json:"employment"`
+	Url  string `json:"url"`
+}
+
+type VacancySalary struct {
+	From     int    `json:"from"`
+	To       int    `json:"to"`
+	Currency string `json:"currency"`
+	Gross    bool   `json:"gross"`
+}
+
+type VacancyAddressMetro struct {
+	StationName string `json:"station_name"`
+	LineName    string `json:"line_name"`
+}
+
+type VacancyAddressMetroStation struct {
+	StationName string `json:"station_name"`
+	LineName    string `json:"line_name"`
+}
+
+type VacancyType struct {
+	Id   string `json:"id"`
+	Name string `json:"name"`
+}
+
+type VacancyAddress struct {
+	Id            string                        `json:"id"`
+	City          string                        `json:"city"`
+	Street        string                        `json:"street"`
+	Building      string                        `json:"building"`
+	Raw           string                        `json:"raw"`
+	Metro         *VacancyAddressMetro          `json:"metro"`
+	MetroStations []*VacancyAddressMetroStation `json:"metro_stations"`
+}
+
+type VacancyEmployerLogo struct {
+	Original string `json:"original"`
+}
+
+type VacancyEmployer struct {
+	Id                   string               `json:"id"`
+	Name                 string               `json:"name"`
+	Url                  string               `json:"url"`
+	AlternateUrl         string               `json:"alternate_url"`
+	LogoUrls             *VacancyEmployerLogo `json:"logo_urls"`
+	VacanciesUrl         string               `json:"vacancies_url"`
+	AccreditedItEmployer bool                 `json:"accredited_it_employer"`
+	Trusted              bool                 `json:"trusted"`
+}
+
+type VacancySnippet struct {
+	Requirement    string `json:"requirement"`
+	Responsibility string `json:"responsibility"`
+}
+
+type VacancyExperience struct {
+	Name string `json:"name"`
+}
+
+type VacancyEmployment struct {
+	Name string `json:"name"`
+}
+
+type VacancyResponseItem struct {
+	Id                string             `json:"id"`
+	Name              string             `json:"name"`
+	Area              *VacancyArea       `json:"area"`
+	Salary            *VacancySalary     `json:"salary"`
+	Type              *VacancyType       `json:"type"`
+	Address           *VacancyAddress    `json:"address"`
+	PublishedAt       string             `json:"published_at"`
+	CreatedAt         string             `json:"created_at"`
+	Archived          bool               `json:"archived"`
+	ApplyAlternateUrl string             `json:"apply_alternate_url"`
+	Url               string             `json:"url"`
+	AlternateUrl      string             `json:"alternate_url"`
+	Employer          *VacancyEmployer   `json:"employer"`
+	Snippet           *VacancySnippet    `json:"snippet"`
+	Experience        *VacancyExperience `json:"experience"`
+	Employment        *VacancyEmployment `json:"employment"`
 }

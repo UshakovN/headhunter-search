@@ -6,6 +6,17 @@ import (
 	tg "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
+type parseMode string
+
+const (
+	HTMLParseMode       parseMode = "HTML"
+	MarkdownV2ParseMode parseMode = "MarkdownV2"
+)
+
+func (p parseMode) String() string {
+	return string(p)
+}
+
 type Message struct {
 	MessageID int64
 	ChatID    int64
