@@ -18,14 +18,6 @@ CREATE TABLE chat_sent_vacancies
     created_at      TIMESTAMP
 );
 
-CREATE TABLE chat_trees
-(
-    chat_tree_id    SERIAL PRIMARY KEY,
-    chat_id         BIGINT,
-    serialized_tree JSONB,
-    created_at      TIMESTAMP
-);
-
 SELECT DISTINCT subscriptions_ids,
                 user_ids,
                 chat_ids,
