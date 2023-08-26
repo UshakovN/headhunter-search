@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
@@ -41,11 +42,14 @@ func main() {
 	if err != nil {
 		log.Fatalf("cannot create new handler: %v", err)
 	}
-	defer h.Shutdown()
+	defer h.Shutdown(ctx)
 
 	go h.HandleMessagesContinuously(ctx)
 	go h.HandleSubscriptionsContinuously(ctx)
 	go h.HandleTasksContinuously(ctx)
+
+	time.Sleep(10 * time.Second)
+	h.Shutdown(ctx)
 
 	exit := make(chan os.Signal)
 	signal.Notify(exit, syscall.SIGINT, syscall.SIGTERM)

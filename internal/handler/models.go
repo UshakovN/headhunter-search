@@ -7,14 +7,14 @@ import (
 	"main/pkg/telegram"
 )
 
-type subVacancy struct {
-	Area       string
-	Experience string
-	Keywords   string
+type vacancy struct {
+	area       string
+	experience string
+	keywords   string
 }
 
-func (f *subVacancy) IsFilled() bool {
-	return f.Area != "" && f.Experience != "" && f.Keywords != ""
+func (f *vacancy) IsFilled() bool {
+	return f.area != "" && f.experience != "" && f.keywords != ""
 }
 
 func newStartMessage(chatID int64) *telegram.SendMessage {
@@ -104,7 +104,7 @@ func newUnsubCompleteMessage(chatID int64) *telegram.SendMessage {
 	}
 }
 
-func newUnsubMessage(chatID int64, subs []*model.Subscription) *telegram.SendMessage {
+func newUnsubMessage(chatID int64, subs []*model.ChatSubscription) *telegram.SendMessage {
 	text := `Отписаться от рассылки вакансий 📤
 Выберите требуемую подписку 👀`
 
@@ -113,7 +113,7 @@ func newUnsubMessage(chatID int64, subs []*model.Subscription) *telegram.SendMes
 	for index, sub := range subs {
 		buttons = append(buttons, telegram.InlineKeyboardButton{
 			Text:    fmt.Sprintf("%d 🌠️ %s", index+1, sub.Keywords),
-			Command: fmt.Sprintf("/unsub?id=%s", sub.SubscriptionID),
+			Command: fmt.Sprintf("/unsub?id=%d", sub.SubscriptionID),
 		})
 	}
 	buttons = append(buttons, telegram.InlineKeyboardButton{

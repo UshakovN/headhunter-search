@@ -19,33 +19,30 @@ import (
 )
 
 type Handler struct {
-	ctx               context.Context
-	bot               telegram.Bot
-	fetcher           fetcher.Fetcher
-	storage           storage.Storage
-	taskQueue         task.Queue
-	chatsTimer        timer.Timer[int64]
-	chatsTrees        *chats.Trees
-	subVacancies      cache.MemCache[int64, *subVacancy]
-	pendingChats      cache.KeyCache[int64]
-	sentSubscriptions cache.KeyCache[string]
-	sentVacancies     cache.KeyCache[string]
+	ctx           context.Context
+	bot           telegram.Bot
+	fetcher       fetcher.Fetcher
+	storage       storage.Storage
+	taskQueue     task.Queue
+	chatsTrees    *chats.Trees
+	chatsTimers   timer.Timer[int64]
+	chatsPending  cache.KeyCache[int64]
+	chatsSubVacs  cache.MemCache[int64, *vacancy]
+	chatsSentVacs cache.MemCache[int64, cache.KeyCache[string]]
 }
 
 func NewHandler(ctx context.Context, bot telegram.Bot, fetcher fetcher.Fetcher, storage storage.Storage) (*Handler, error) {
 	const workers = 100
 
 	h := &Handler{
-		ctx:               ctx,
-		bot:               bot,
-		fetcher:           fetcher,
-		storage:           storage,
-		taskQueue:         task.NewQueue(workers),
-		chatsTimer:        timer.NewTimer[int64](),
-		subVacancies:      cache.NewMemCache[int64, *subVacancy](),
-		pendingChats:      cache.NewKeyCache[int64](),
-		sentSubscriptions: cache.NewKeyCache[string](),
-		sentVacancies:     cache.NewKeyCache[string](),
+		ctx:          ctx,
+		bot:          bot,
+		fetcher:      fetcher,
+		storage:      storage,
+		taskQueue:    task.NewQueue(workers),
+		chatsTimers:  timer.NewTimer[int64](),
+		chatsSubVacs: cache.NewMemCache[int64, *vacancy](),
+		chatsPending: cache.NewKeyCache[int64](),
 	}
 	if err := h.prepareComponents(ctx); err != nil {
 		return nil, fmt.Errorf("handler cannot prepare components: %v", err)
@@ -57,10 +54,7 @@ func (h *Handler) prepareComponents(ctx context.Context) error {
 	if err := h.bot.Start(); err != nil {
 		return fmt.Errorf("telegram bot cannot start: %v", err)
 	}
-	if err := h.setSentSubscriptions(ctx); err != nil {
-		return fmt.Errorf("cannot set sent subscriptions: %v", err)
-	}
-	if err := h.setSentVacancies(ctx); err != nil {
+	if err := h.setChatsSentVacs(ctx); err != nil {
 		return fmt.Errorf("cannot set sent vacancies: %v", err)
 	}
 	h.setChatsTrees()
@@ -68,32 +62,17 @@ func (h *Handler) prepareComponents(ctx context.Context) error {
 	return nil
 }
 
-func (h *Handler) setSentVacancies(ctx context.Context) error {
+func (h *Handler) setChatsSentVacs(ctx context.Context) error {
 	vacancies, err := h.storage.SentVacancies(ctx)
 	if err != nil {
 		return fmt.Errorf("cannot got sent vacancies from storage: %v", err)
 	}
-	m := cache.NewKeyCache[string]()
+	m := cache.NewMemCache[int64, cache.KeyCache[string]]()
 
 	for _, v := range vacancies {
-		m.Put(v.VacancyID)
+		m.GetPut(v.ChatID, cache.NewKeyCache[string]()).Put(v.VacancyID)
 	}
-	h.sentVacancies = m
-
-	return nil
-}
-
-func (h *Handler) setSentSubscriptions(ctx context.Context) error {
-	states, err := h.storage.SentSubscriptions(ctx)
-	if err != nil {
-		return fmt.Errorf("cannot got subscriptions states from storage: %v", err)
-	}
-	m := cache.NewKeyCache[string]()
-
-	for _, s := range states {
-		m.Put(s.SubscriptionID)
-	}
-	h.sentSubscriptions = m
+	h.chatsSentVacs = m
 
 	return nil
 }
@@ -112,7 +91,7 @@ func (h *Handler) HandleSubscriptionsContinuously(ctx context.Context) {
 	g.SetLimit(groupLimit)
 
 	for {
-		if err := h.storage.UsersSubscriptions(ctx, func(s *model.Subscription) {
+		if err := h.storage.ChatsSubscriptions(ctx, func(s *model.ChatSubscription) {
 			g.Go(func() error {
 				if err := h.sendVacanciesForSubscription(ctx, s); err != nil {
 					return fmt.Errorf("cannot send vacancies for subscription: %v", err)
@@ -120,21 +99,20 @@ func (h *Handler) HandleSubscriptionsContinuously(ctx context.Context) {
 				return nil
 			})
 		}); err != nil {
-			log.Errorf("cannot got users subscriptions from storage: %v. sleep %s before next handling...", err, errWait.String())
+			log.Errorf("cannot got users subscriptions from storage: %v. sleep %s before next handling", err, errWait.String())
 			time.Sleep(errWait)
 			continue
 		}
 		if err := g.Wait(); err != nil {
-			log.Errorf("cannot handle users subscriptions from storage: %v. sleep %s before next handling...", err, errWait.String())
+			log.Errorf("cannot handle users subscriptions from storage: %v. sleep %s before next handling", err, errWait.String())
 			time.Sleep(errWait)
 			continue
 		}
-		log.Infof("subscriptions handled. sleep %s before next handling...", okWait.String())
 		time.Sleep(okWait)
 	}
 }
 
-func (h *Handler) sendVacanciesForSubscription(ctx context.Context, s *model.Subscription) error {
+func (h *Handler) sendVacanciesForSubscription(ctx context.Context, s *model.ChatSubscription) error {
 	const (
 		messageTimeout = 10 * time.Second
 		requestPeriod  = 14
@@ -151,13 +129,14 @@ func (h *Handler) sendVacanciesForSubscription(ctx context.Context, s *model.Sub
 	}
 	for _, item := range resp.Items {
 		// wait timer for chat id
-		h.chatsTimer.Wait(s.ChatID)
+		h.chatsTimers.Wait(s.ChatID)
 
 		// if chat id exist in pending chats
-		if h.pendingChats.Exist(s.ChatID) {
+		if h.chatsPending.Exist(s.ChatID) {
 			return nil
 		}
-		if h.sentVacancies.Exist(item.Id) {
+		// if vacancy id already sent to chat id
+		if h.chatsSentVacs.Exist(s.ChatID) && h.chatsSentVacs.Get(s.ChatID).Exist(item.Id) {
 			continue
 		}
 		msg := newVacancyMessage(s.ChatID, item)
@@ -165,26 +144,18 @@ func (h *Handler) sendVacanciesForSubscription(ctx context.Context, s *model.Sub
 		if _, err = h.bot.SendMessage(msg); err != nil {
 			return fmt.Errorf("cannot send vacancy telegram bot message: %v", err)
 		}
-		h.sentVacancies.Put(item.Id)
-		h.sentSubscriptions.Put(s.SubscriptionID)
+		// put sent vacancy id for chat id
+		h.chatsSentVacs.GetPut(s.ChatID, cache.NewKeyCache[string]()).Put(item.Id)
 
-		if err = h.storage.PutSentVacancy(ctx, &model.SentVacancy{
-			SentID:    utils.NewUUID(),
-			VacancyID: item.Id,
-			ChatID:    s.ChatID,
-			CreatedAt: utils.NowTimeUTC(),
-		}); err != nil {
-			return fmt.Errorf("cannot put sent vacancy to storage: %v", err)
-		}
-		if err = h.storage.PutSentSubscription(ctx, &model.SentSubscription{
-			SentID:         utils.NewUUID(),
+		if err = h.storage.PutSentVacancy(ctx, &model.ChatSentVacancy{
+			VacancyID:      item.Id,
 			SubscriptionID: s.SubscriptionID,
 			CreatedAt:      utils.NowTimeUTC(),
 		}); err != nil {
-			return fmt.Errorf("cannot put sent subscription to storage: %v", err)
+			return fmt.Errorf("cannot put sent vacancy to storage: %v", err)
 		}
 		// set timer for chat id
-		h.chatsTimer.Set(s.ChatID, messageTimeout)
+		h.chatsTimers.Set(s.ChatID, messageTimeout)
 	}
 	return nil
 }
@@ -195,6 +166,6 @@ func (h *Handler) HandleMessagesContinuously(ctx context.Context) {
 	})
 }
 
-func (h *Handler) Shutdown() {
+func (h *Handler) Shutdown(ctx context.Context) {
 	h.bot.Shutdown()
 }

@@ -22,15 +22,15 @@ type EventInput struct {
 }
 
 type Trees struct {
-	mtx sync.Mutex
-	m   map[int64]tree.Tree[Link, *State]
-	t   func() tree.Tree[Link, *State]
+	mtx       sync.Mutex
+	chatTrees map[int64]tree.Tree[Link, *State]
+	buildTree func() tree.Tree[Link, *State]
 }
 
-func NewChatsTrees(t func() tree.Tree[Link, *State]) *Trees {
+func NewChatsTrees(buildTree func() tree.Tree[Link, *State]) *Trees {
 	return &Trees{
-		m: map[int64]tree.Tree[Link, *State]{},
-		t: t,
+		chatTrees: map[int64]tree.Tree[Link, *State]{},
+		buildTree: buildTree,
 	}
 }
 
@@ -38,22 +38,22 @@ func (trs *Trees) NewTree(chatID int64) tree.Tree[Link, *State] {
 	trs.mtx.Lock()
 	defer trs.mtx.Unlock()
 
-	trs.m[chatID] = trs.t()
-	return trs.m[chatID]
+	trs.chatTrees[chatID] = trs.buildTree()
+	return trs.chatTrees[chatID]
 }
 
 func (trs *Trees) Tree(chatID int64) tree.Tree[Link, *State] {
 	trs.mtx.Lock()
 	defer trs.mtx.Unlock()
 
-	if t, ok := trs.m[chatID]; ok {
+	if t, ok := trs.chatTrees[chatID]; ok {
 		return t
 	}
-	trs.m[chatID] = trs.t()
+	trs.chatTrees[chatID] = trs.buildTree()
 
-	return trs.m[chatID]
+	return trs.chatTrees[chatID]
 }
 
 func (trs *Trees) SetTree(chatID int64, t tree.Tree[Link, *State]) {
-	trs.m[chatID] = t
+	trs.chatTrees[chatID] = t
 }

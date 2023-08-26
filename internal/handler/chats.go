@@ -28,7 +28,7 @@ func (h *Handler) setChatsTrees() {
 					messageID, err = h.bot.SendMessage(newStartMessage(input.ChatID))
 				}
 				// put chat id to pending chats
-				h.pendingChats.Put(input.ChatID)
+				h.chatsPending.Put(input.ChatID)
 
 				// return message id and error
 				return messageID, err
@@ -67,13 +67,13 @@ func (h *Handler) setChatsTrees() {
 				// try got sub id from query
 				if subID := http.MustParseQuery(input.Command).Get("id"); subID != "" {
 					// delete user subscription by id
-					if err := h.storage.DeleteUserSubscription(input.Ctx, subID); err != nil {
+					if err := h.storage.DeleteChatSubscription(input.Ctx, utils.MustCast[int64](subID)); err != nil {
 						return 0, err
 					}
 					return h.bot.EditMessage(newUnsubCompleteMessage(input.ChatID).ToEditMessage(prevID))
 				}
 				// got subscriptions from storage for user
-				subs, err := h.storage.UserSubscriptions(input.Ctx, input.UserID)
+				subs, err := h.storage.ChatSubscriptions(input.Ctx, input.ChatID)
 				if err != nil {
 					return 0, err
 				}
@@ -101,8 +101,8 @@ func (h *Handler) setChatsTrees() {
 				// try got area id from query
 				if areaID := http.MustParseQuery(input.Command).Get("id"); areaID != "" {
 					// set area id for user vacancy
-					subVac := h.subVacancies.GetPut(input.ChatID, &subVacancy{})
-					subVac.Area = areaID
+					subVac := h.chatsSubVacs.GetPut(input.ChatID, &vacancy{})
+					subVac.area = areaID
 
 					// got previous message id
 					prevID := sub.Entity().MessageID
@@ -128,8 +128,8 @@ func (h *Handler) setChatsTrees() {
 				// try got area id from query
 				if experienceID := http.MustParseQuery(input.Command).Get("id"); experienceID != "" {
 					// set experience id for user vacancy
-					subVac := h.subVacancies.GetPut(input.ChatID, &subVacancy{})
-					subVac.Experience = experienceID
+					subVac := h.chatsSubVacs.GetPut(input.ChatID, &vacancy{})
+					subVac.experience = experienceID
 
 					// got previous message id
 					prevID := sub.Entity().MessageID
@@ -237,8 +237,8 @@ func (h *Handler) HandleMessages(ctx context.Context, m *telegram.Message) error
 
 		if link := chatTree.Link(); link == "keywords" {
 			// set experience id for user vacancy
-			subVac := h.subVacancies.GetPut(m.ChatID, &subVacancy{})
-			subVac.Keywords = m.Text
+			subVac := h.chatsSubVacs.GetPut(m.ChatID, &vacancy{})
+			subVac.keywords = m.Text
 
 			if entity := chatTree.Entity(); entity != nil {
 				// got previous message id
@@ -365,18 +365,17 @@ func (h *Handler) HandleMessages(ctx context.Context, m *telegram.Message) error
 
 func (h *Handler) newTaskPutSubscription(userID, chatID int64) {
 	// got subscription vacancy for user
-	subVac := h.subVacancies.GetPut(chatID, &subVacancy{})
+	subVac := h.chatsSubVacs.GetPut(chatID, &vacancy{})
 
 	// push task to queue
 	h.taskQueue.Push(func() error {
-		if err := h.storage.PutUserSubscription(h.ctx, &model.Subscription{
-			SubscriptionID: utils.NewUUID(),
-			UserID:         userID,
-			ChatID:         chatID,
-			Keywords:       subVac.Keywords,
-			Area:           subVac.Area,
-			Experience:     subVac.Experience,
-			CreatedAt:      utils.NowTimeUTC(),
+		if err := h.storage.PutChatSubscription(h.ctx, &model.ChatSubscription{
+			ChatID:     chatID,
+			UserID:     userID,
+			Keywords:   subVac.keywords,
+			Area:       subVac.area,
+			Experience: subVac.experience,
+			CreatedAt:  utils.NowTimeUTC(),
 		}); err != nil {
 			return fmt.Errorf("cannot put subscription in storage: %v", err)
 		}
@@ -386,8 +385,8 @@ func (h *Handler) newTaskPutSubscription(userID, chatID int64) {
 
 func (h *Handler) deleteChatState(chatID int64) {
 	// remove chat from
-	h.pendingChats.Delete(chatID)
+	h.chatsPending.Delete(chatID)
 
 	// delete subscription vacancy for user
-	h.subVacancies.Delete(chatID)
+	h.chatsSubVacs.Delete(chatID)
 }

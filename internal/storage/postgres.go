@@ -30,24 +30,24 @@ func NewStorage(ctx context.Context, client postgres.Client) Storage {
 	}
 }
 
-func (s *storage) UserSubscriptions(ctx context.Context, userID int64) ([]*model.Subscription, error) {
+func (s *storage) ChatSubscriptions(ctx context.Context, chatID int64) ([]*model.ChatSubscription, error) {
 	query := sanitizeQuery(
 		`SELECT 
             subscription_id,
-            user_id,
             chat_id,
+            user_id,
             area,
             keywords,
             experience,
             created_at
-        FROM subscriptions WHERE user_id = $1`)
+        FROM chat_subscriptions WHERE chat_id = $1`)
 
 	var (
 		rows pgx.Rows
 		err  error
 	)
 	if err = retries.DoWithRetries(retryCount, retryWait, func() error {
-		rows, err = s.client.Query(ctx, query, postgres.SingleQuote(userID))
+		rows, err = s.client.Query(ctx, query, postgres.SingleQuote(chatID))
 		if err != nil {
 			return fmt.Errorf("cannot do postgres query: %s: %v", query, err)
 		}
@@ -57,16 +57,16 @@ func (s *storage) UserSubscriptions(ctx context.Context, userID int64) ([]*model
 		return nil, err
 	}
 	var (
-		subs []*model.Subscription
+		subs []*model.ChatSubscription
 		ok   bool
 	)
 	for {
-		sub := &model.Subscription{}
+		sub := &model.ChatSubscription{}
 
 		if ok, err = scanQueriedRow(rows,
 			&sub.SubscriptionID,
-			&sub.UserID,
 			&sub.ChatID,
+			&sub.UserID,
 			&sub.Area,
 			&sub.Keywords,
 			&sub.Experience,
@@ -82,24 +82,22 @@ func (s *storage) UserSubscriptions(ctx context.Context, userID int64) ([]*model
 	return subs, nil
 }
 
-func (s *storage) PutUserSubscription(ctx context.Context, sub *model.Subscription) error {
+func (s *storage) PutChatSubscription(ctx context.Context, sub *model.ChatSubscription) error {
 	query := sanitizeQuery(
-		`INSERT INTO subscriptions(
-            subscription_id,
-            user_id,
+		`INSERT INTO chat_subscriptions(
             chat_id,
+            user_id,
             area,
             keywords,
             experience,
             created_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        ) VALUES ($1, $2, $3, $4, $5, $6)`,
 	)
 	return retries.DoWithRetries(retryCount, retryWait, func() error {
 		if _, err := s.client.Exec(ctx, query,
 			postgres.MultiQuote(
-				sub.SubscriptionID,
-				sub.UserID,
 				sub.ChatID,
+				sub.UserID,
 				sub.Area,
 				sub.Keywords,
 				sub.Experience,
@@ -112,17 +110,17 @@ func (s *storage) PutUserSubscription(ctx context.Context, sub *model.Subscripti
 	})
 }
 
-func (s *storage) UsersSubscriptions(ctx context.Context, sf func(sub *model.Subscription)) error {
+func (s *storage) ChatsSubscriptions(ctx context.Context, callback func(sub *model.ChatSubscription)) error {
 	query := sanitizeQuery(
 		`SELECT
             subscription_id,
-            user_id,
             chat_id,
+            user_id,
             area,
             keywords,
             experience,
             created_at
-        FROM subscriptions`)
+        FROM chat_subscriptions`)
 
 	var (
 		rows pgx.Rows
@@ -140,12 +138,12 @@ func (s *storage) UsersSubscriptions(ctx context.Context, sf func(sub *model.Sub
 		return err
 	}
 	for {
-		sub := &model.Subscription{}
+		sub := &model.ChatSubscription{}
 
 		if ok, err = scanQueriedRow(rows,
 			&sub.SubscriptionID,
-			&sub.UserID,
 			&sub.ChatID,
+			&sub.UserID,
 			&sub.Area,
 			&sub.Keywords,
 			&sub.Experience,
@@ -156,17 +154,17 @@ func (s *storage) UsersSubscriptions(ctx context.Context, sf func(sub *model.Sub
 		if !ok {
 			break
 		}
-		sf(sub)
+		callback(sub)
 	}
 	return nil
 }
 
-func (s *storage) UsersSubscriptionsSets(ctx context.Context, sf func(subset *model.SubscriptionSet)) error {
+func (s *storage) ChatSubscriptionsSets(ctx context.Context, callback func(subSet *model.ChatSubscriptionSet)) error {
 	query := sanitizeQuery(
 		`SELECT DISTINCT
             subscription_ids,
-            user_ids,
             chat_ids,
+            user_ids,
             area,
             keywords,
             experience
@@ -179,9 +177,9 @@ func (s *storage) UsersSubscriptionsSets(ctx context.Context, sf func(subset *mo
                 experience,
                 TRIM(REGEXP_REPLACE(LOWER(keywords), '\s+', ' ', 'g')) as keywords,
                 ARRAY_AGG(subscription_id) OVER (PARTITION BY area, LOWER(keywords)) as subscriptions_ids,
-                ARRAY_AGG(user_id) OVER (PARTITION BY area, LOWER(keywords)) as user_ids,
-                ARRAY_AGG(chat_id) OVER (PARTITION BY area, LOWER(keywords)) as chat_ids
-            FROM subscriptions
+                ARRAY_AGG(chat_id) OVER (PARTITION BY area, LOWER(keywords)) as chat_ids,
+                ARRAY_AGG(user_id) OVER (PARTITION BY area, LOWER(keywords)) as user_ids
+            FROM chat_subscriptions
         ) as QUERY;`)
 
 	var (
@@ -200,33 +198,37 @@ func (s *storage) UsersSubscriptionsSets(ctx context.Context, sf func(subset *mo
 		return err
 	}
 	for {
-		sub := &model.SubscriptionSet{}
+		subSet := &model.ChatSubscriptionSet{}
 
 		if ok, err = scanQueriedRow(rows,
-			&sub.SubscriptionIDs,
-			&sub.UserIDs,
-			&sub.ChatIDs,
-			&sub.Area,
-			&sub.Keywords,
-			&sub.Experience,
+			&subSet.SubscriptionIDs,
+			&subSet.ChatIDs,
+			&subSet.UserIDs,
+			&subSet.Area,
+			&subSet.Keywords,
+			&subSet.Experience,
 		); err != nil {
-			return fmt.Errorf("cannot scan queried row: %v", err)
+			return fmt.Errorf("cannot callback queried row: %v", err)
 		}
 		if !ok {
 			break
 		}
-		sf(sub)
+		callback(subSet)
 	}
 	return nil
 }
 
-func (s *storage) SentSubscriptions(ctx context.Context) ([]*model.SentSubscription, error) {
+func (s *storage) SentVacancies(ctx context.Context) ([]*model.ChatSentVacancy, error) {
 	query := sanitizeQuery(
-		`SELECT  
-              sent_id, 
-              subscription_id,
-              created_at
-        FROM sent_subscriptions`)
+		`SELECT
+            sent_id, 
+            sv.subscription_id,
+            chat_id,
+            vacancy_id, 
+            sv.created_at
+    FROM chat_sent_vacancies AS sv 
+        INNER JOIN chat_subscriptions AS s 
+    ON sv.subscription_id = s.subscription_id`)
 
 	var (
 		rows pgx.Rows
@@ -243,59 +245,15 @@ func (s *storage) SentSubscriptions(ctx context.Context) ([]*model.SentSubscript
 		return nil, err
 	}
 	var (
-		st []*model.SentSubscription
+		sv []*model.ChatSentVacancy
 		ok bool
 	)
 	for {
-		s := &model.SentSubscription{}
+		s := &model.ChatSentVacancy{}
 
 		if ok, err = scanQueriedRow(rows,
 			&s.SentID,
 			&s.SubscriptionID,
-			&s.CreatedAt,
-		); err != nil {
-			return nil, fmt.Errorf("cannot scan queried row: %v", err)
-		}
-		if !ok {
-			break
-		}
-		st = append(st, s)
-	}
-	return st, nil
-}
-
-func (s *storage) SentVacancies(ctx context.Context) ([]*model.SentVacancy, error) {
-	query := sanitizeQuery(
-		`SELECT
-            sent_id, 
-            chat_id,
-            vacancy_id, 
-            created_at
-    FROM sent_vacancies`)
-
-	var (
-		rows pgx.Rows
-		err  error
-	)
-	if err = retries.DoWithRetries(retryCount, retryWait, func() error {
-		rows, err = s.client.Query(ctx, query)
-		if err != nil {
-			return fmt.Errorf("cannot do postgres query: %s: %v", query, err)
-		}
-		return nil
-
-	}); err != nil {
-		return nil, err
-	}
-	var (
-		sv []*model.SentVacancy
-		ok bool
-	)
-	for {
-		s := &model.SentVacancy{}
-
-		if ok, err = scanQueriedRow(rows,
-			&s.SentID,
 			&s.ChatID,
 			&s.VacancyID,
 			&s.CreatedAt,
@@ -310,42 +268,18 @@ func (s *storage) SentVacancies(ctx context.Context) ([]*model.SentVacancy, erro
 	return sv, nil
 }
 
-func (s *storage) PutSentSubscription(ctx context.Context, st *model.SentSubscription) error {
+func (s *storage) PutSentVacancy(ctx context.Context, sv *model.ChatSentVacancy) error {
 	query := sanitizeQuery(
-		`INSERT INTO sent_subscriptions(
-            sent_id,
+		`INSERT INTO chat_sent_vacancies(
             subscription_id,
+            vacancy_id,
             created_at
         ) VALUES ($1, $2, $3)`)
 
 	return retries.DoWithRetries(retryCount, retryWait, func() error {
 		if _, err := s.client.Exec(ctx, query,
 			postgres.MultiQuote(
-				st.SentID,
-				st.SubscriptionID,
-				st.CreatedAt,
-			)...,
-		); err != nil {
-			return fmt.Errorf("cannot do postgres exec: %s: %v", query, err)
-		}
-		return nil
-	})
-}
-
-func (s *storage) PutSentVacancy(ctx context.Context, sv *model.SentVacancy) error {
-	query := sanitizeQuery(
-		`INSERT INTO sent_vacancies(
-            sent_id, 
-            chat_id,
-            vacancy_id,
-            created_at
-        ) VALUES ($1, $2, $3, $4)`)
-
-	return retries.DoWithRetries(retryCount, retryWait, func() error {
-		if _, err := s.client.Exec(ctx, query,
-			postgres.MultiQuote(
-				sv.SentID,
-				sv.ChatID,
+				sv.SubscriptionID,
 				sv.VacancyID,
 				sv.CreatedAt,
 			)...,
@@ -356,10 +290,10 @@ func (s *storage) PutSentVacancy(ctx context.Context, sv *model.SentVacancy) err
 	})
 }
 
-func (s *storage) DeleteUserSubscription(ctx context.Context, subID string) error {
+func (s *storage) DeleteChatSubscription(ctx context.Context, subID int64) error {
 	query := sanitizeQuery(
 		`DELETE 
-            FROM subscriptions 
+            FROM chat_subscriptions 
         WHERE subscription_id = $1`)
 
 	return retries.DoWithRetries(retryCount, retryWait, func() error {
