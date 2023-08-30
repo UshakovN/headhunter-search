@@ -14,6 +14,8 @@ import (
 	"main/pkg/timer"
 	"main/pkg/utils"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 )
 
 type Handler struct {
@@ -21,7 +23,8 @@ type Handler struct {
 	bot           telegram.Bot
 	fetcher       fetcher.Fetcher
 	storage       storage.Storage
-	taskQueue     task.Queue
+	subTasks      task.Queue
+	sendTasks     task.Queue
 	chatsTrees    chats.Trees
 	chatsTimers   cache.MemCache[int64, timer.RefreshTimer]
 	chatsPending  cache.KeyCache[int64]
@@ -37,7 +40,8 @@ func NewHandler(ctx context.Context, bot telegram.Bot, fetcher fetcher.Fetcher, 
 		bot:          bot,
 		fetcher:      fetcher,
 		storage:      storage,
-		taskQueue:    task.NewQueue(workers),
+		subTasks:     task.NewQueue(workers),
+		sendTasks:    task.NewQueue(workers),
 		chatsTimers:  cache.NewMemCache[int64, timer.RefreshTimer](),
 		chatsSubVacs: cache.NewMemCache[int64, *vacancy](),
 		chatsPending: cache.NewKeyCache[int64](),
@@ -45,7 +49,8 @@ func NewHandler(ctx context.Context, bot telegram.Bot, fetcher fetcher.Fetcher, 
 	if err := h.prepareComponents(ctx); err != nil {
 		return nil, fmt.Errorf("handler cannot prepare components: %v", err)
 	}
-	go h.handleTasksContinuously(ctx)
+	go h.subTasks.ContinuouslyHandle(ctx)
+	go h.sendTasks.ContinuouslyHandle(ctx)
 
 	return h, nil
 }
@@ -79,27 +84,30 @@ func (h *Handler) setChatsSentVacs(ctx context.Context) error {
 
 func (h *Handler) HandleSubscriptions(ctx context.Context) error {
 	if err := h.storage.ChatsSubscriptions(ctx, func(sub *model.ChatSubscription) {
-		h.taskQueue.Push(func() error {
+		h.sendTasks.Push(func() error {
 			if err := h.sendSubscriptionVacancies(ctx, sub); err != nil {
 				return fmt.Errorf("cannot send subscription vacancies: %v", err)
 			}
+			log.Infof("subscription %s for chat with id %d handled", sub.Keywords, sub.ChatID)
 			return nil
 		})
 	}); err != nil {
 		return fmt.Errorf("cannot got chats subscription from storage: %v", err)
 	}
+	log.Infof("chat subscriptions handled")
 	return nil
 }
 
 func (h *Handler) HandleSubscriptionsContinuously(ctx context.Context) {
 	schedule.DoWithSchedule("10s", "30s", true, func() error {
+		log.Infof("scheduled handling subscriptions started")
 		return h.HandleSubscriptions(ctx)
 	})
 }
 
 func (h *Handler) fetchVacancies(ctx context.Context, s *model.ChatSubscription) ([]*fetcher.VacancyResponseItem, error) {
 	const (
-		maxDepth = 2000
+		maxDepth = 1000
 		perPage  = 100
 	)
 	req := &fetcher.Request{
@@ -179,10 +187,6 @@ func (h *Handler) HandleMessagesContinuously(ctx context.Context) {
 	h.bot.HandleMessages(func(m *telegram.Message) error {
 		return h.HandleMessages(ctx, m)
 	})
-}
-
-func (h *Handler) handleTasksContinuously(ctx context.Context) {
-	h.taskQueue.ContinuouslyHandle(ctx)
 }
 
 func (h *Handler) Shutdown() {

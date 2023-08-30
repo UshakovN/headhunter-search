@@ -35,7 +35,7 @@ func main() {
 		log.Fatalf("cannot create new postgres client: %v", err)
 	}
 	s := storage.NewStorage(ctx, p)
-	f := fetcher.NewFetcher(ctx)
+	f := fetcher.NewFetcher(ctx, c.Proxy)
 
 	h, err := handler.NewHandler(ctx, b, f, s)
 	if err != nil {

@@ -20,27 +20,37 @@ func (f *vacancy) IsFilled() bool {
 	return f.area != "" && f.experience != "" && f.keywords != ""
 }
 
-func newStartMessage(chatID int64) *telegram.SendMessage {
+func newStartMessage(chatID int64, withStop bool) *telegram.SendMessage {
 	text := `Данный бот способен собирать актуальные вакансии 👀`
 
-	keyboard := telegram.NewInlineKeyboard(telegram.InColButtonsMarkup,
-		telegram.InlineKeyboardButton{
+	buttons := []telegram.InlineKeyboardButton{
+		{
 			Text:    "Подписаться 📩",
 			Command: "/sub",
 		},
-		telegram.InlineKeyboardButton{
+		{
 			Text:    "Отписаться 📤",
 			Command: "/unsub",
 		},
-		telegram.InlineKeyboardButton{
+		{
 			Text:    "Контакты 🍪",
 			Command: "/contacts",
 		},
-		telegram.InlineKeyboardButton{
+		{
 			Text:    "Справка 💭",
 			Command: "/man",
+		},
+	}
+	if withStop {
+		buttons = append(buttons, telegram.InlineKeyboardButton{
+			Text:    "Продолжить рассылку ✉️",
+			Command: "stop",
 		})
-
+	}
+	keyboard := telegram.NewInlineKeyboard(
+		telegram.InColButtonsMarkup,
+		buttons...,
+	)
 	return &telegram.SendMessage{
 		ChatID:   chatID,
 		Text:     text,
@@ -356,9 +366,16 @@ func newVacancyMessage(chatID int64, keywords string, item *fetcher.VacancyRespo
 	}
 	text := s.String()
 
+	keyboard := telegram.NewInlineKeyboard(telegram.InColButtonsMarkup,
+		telegram.InlineKeyboardButton{
+			Text:    "Перейти в меню бота 💭",
+			Command: "/start",
+		})
+
 	return &telegram.SendMessage{
-		ChatID: chatID,
-		Text:   text,
+		ChatID:   chatID,
+		Text:     text,
+		Keyboard: keyboard,
 	}
 }
 

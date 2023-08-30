@@ -34,6 +34,7 @@ type option struct {
 	ctx     context.Context
 	headers Headers
 	query   Query
+	prefix  string
 }
 
 func (c *Client) Get(requestURL string, options ...Option) ([]byte, error) {
@@ -61,15 +62,18 @@ func (c *Client) get(requestURL string, options ...Option) ([]byte, error) {
 	if ctx := o.ctx; ctx == nil {
 		o.ctx = context.Background()
 	}
+	if prefix := o.prefix; prefix != "" {
+		requestURL = fmt.Sprint(o.prefix, requestURL)
+	}
+	if query := o.query; len(query) != 0 {
+		requestURL = fmt.Sprint(requestURL, "?", url.Values(query).Encode())
+	}
 	req, err := http.NewRequestWithContext(o.ctx, http.MethodGet, requestURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("cannot create http request with context for %s: %v", requestURL, err)
 	}
 	if h := o.headers; len(h) != 0 {
 		req.Header = h.toHttpHeaders()
-	}
-	if q := o.query; len(q) != 0 {
-		req.URL.RawQuery = url.Values(q).Encode()
 	}
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -80,14 +84,20 @@ func (c *Client) get(requestURL string, options ...Option) ([]byte, error) {
 		return nil, fmt.Errorf("cannot read response body from %s: %v", requestURL, err)
 	}
 	if code := resp.StatusCode; code != http.StatusOK {
-		err = fmt.Errorf("got wrong status code %s: %d. body: %s", req.URL.String(), code, string(buf))
+		err = fmt.Errorf("got wrong status code %s: %d. body: %s", requestURL, code, string(buf))
 
-		if code == http.StatusForbidden {
+		if code != http.StatusInternalServerError && code != http.StatusBadRequest {
 			err = fmt.Errorf("%w: %v", retries.ErrDoRetry, err)
 		}
 		return nil, err
 	}
 	return buf, nil
+}
+
+func WithPrefix(prefix string) Option {
+	return func(o *option) {
+		o.prefix = prefix
+	}
 }
 
 func WithContext(ctx context.Context) Option {

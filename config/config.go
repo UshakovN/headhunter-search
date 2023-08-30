@@ -12,6 +12,7 @@ import (
 type Config struct {
 	Postgres *postgres.Config `yaml:"postgres" required:"true"`
 	Telegram string           `yaml:"telegram" required:"true"`
+	Proxy    string           `yaml:"proxy"`
 }
 
 func NewConfig(file string) (*Config, error) {

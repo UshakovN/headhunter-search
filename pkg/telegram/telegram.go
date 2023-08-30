@@ -21,6 +21,7 @@ type Bot interface {
 	StartWithWebhook(link string) error
 	SendMessage(m *SendMessage, options ...MessageOption) (int64, error)
 	EditMessage(m *EditMessage, options ...MessageOption) (int64, error)
+	DeleteMessage(chatID int64, messageID int64) error
 	HandleMessages(handler func(m *Message) error)
 	Shutdown()
 }
@@ -171,6 +172,18 @@ func (b *bot) EditMessage(m *EditMessage, options ...MessageOption) (int64, erro
 		return nil
 	})
 	return id, err
+}
+
+func (b *bot) DeleteMessage(chatID int64, messageID int64) error {
+	return retries.DoWithRetries(retryCount, retryWait, func() error {
+		if _, err := b.api.Request(tg.DeleteMessageConfig{
+			ChatID:    chatID,
+			MessageID: int(messageID),
+		}); err != nil {
+			return fmt.Errorf("%w: cannot delete telegram message: %v", retries.ErrDoRetry, err)
+		}
+		return nil
+	})
 }
 
 func (b *bot) Shutdown() {

@@ -12,12 +12,14 @@ type Fetcher interface {
 
 type fetcher struct {
 	ctx    context.Context
+	proxy  string
 	client *http.Client
 }
 
-func NewFetcher(ctx context.Context) Fetcher {
+func NewFetcher(ctx context.Context, proxy string) Fetcher {
 	return &fetcher{
 		ctx:    ctx,
+		proxy:  proxy,
 		client: http.NewClient(ctx),
 	}
 }
@@ -27,7 +29,11 @@ func (f *fetcher) Fetch(ctx context.Context, req *Request) (*Response, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cannot got query from vacancies request: %v", err)
 	}
-	buf, err := f.client.Get(vacanciesRequestURL, http.WithContext(ctx), http.WithQuery(query))
+	buf, err := f.client.Get(vacanciesRequestURL,
+		http.WithContext(ctx),
+		http.WithQuery(query),
+		http.WithPrefix(f.proxy),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("cannot get request to %s: %v", vacanciesRequestURL, err)
 	}

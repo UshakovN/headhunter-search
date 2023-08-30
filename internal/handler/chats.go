@@ -11,6 +11,8 @@ import (
 	"main/pkg/tree"
 	"main/pkg/utils"
 	"strings"
+
+	log "github.com/sirupsen/logrus"
 )
 
 func (h *Handler) setChatsTrees() {
@@ -20,19 +22,24 @@ func (h *Handler) setChatsTrees() {
 		// node for /start
 		root.Push("start", &chats.State{
 			Event: func(input *chats.EventInput) (messageID int64, err error) {
+				// push stop keyboard button if vacancies have been sent to chat id
+				withStop := h.chatsSentVacs.Exist(input.ChatID)
+
 				// if previous message id is set
 				if entity := root.Next("start").Entity(); entity != nil && entity.MessageID != 0 {
 					// edit previous message to start
-					messageID, err = h.bot.EditMessage(newStartMessage(input.ChatID).ToEditMessage(entity.MessageID))
+					messageID, err = h.bot.EditMessage(newStartMessage(input.ChatID, withStop).ToEditMessage(entity.MessageID))
 				} else {
 					// else send start message
-					messageID, err = h.bot.SendMessage(newStartMessage(input.ChatID))
+					messageID, err = h.bot.SendMessage(newStartMessage(input.ChatID, withStop))
+				}
+				if err != nil {
+					return 0, err
 				}
 				// put chat id to pending chats
 				h.chatsPending.Put(input.ChatID)
-
 				// return message id and error
-				return messageID, err
+				return messageID, nil
 			},
 		})
 
@@ -174,6 +181,8 @@ func (h *Handler) setChatsTrees() {
 				}
 				// create new task for put subscription to storage
 				h.newTaskPutSubscription(input.UserID, input.ChatID)
+				// clear
+				h.deleteChatState(input.ChatID)
 
 				return messageID, nil
 			},
@@ -294,14 +303,29 @@ func (h *Handler) HandleMessages(ctx context.Context, m *telegram.Message) error
 	// handle command messages
 	if m.IsCommand() {
 		link := chats.Link(m.Command)
+
+		// if command not from callback query
+		if !m.FromCallback() && link != "start" {
+			// not handle user entered commands
+			return nil
+		}
 		chatTree := h.chatsTrees.Tree(m.ChatID)
 
 		defer func() {
-			// if link it /confirm or /cancel
+			// if link it /confirm, /cancel, /stop
 			if str.OneOf(func(s string) bool {
 				return s == string(link)
 			}, "confirm", "cancel", "stop") {
+				// if link it /stop
+				if link == "stop" {
+					prevID := h.chatsTrees.Tree(m.ChatID).Entity().MessageID
 
+					// delete previous sent message
+					if err := h.bot.DeleteMessage(m.ChatID, prevID); err != nil {
+						log.Infof("cannot delete telegram message: %v", err)
+						return
+					}
+				}
 				// delete chat state
 				h.deleteChatState(m.ChatID)
 				// create new chat tree for chat id
@@ -369,7 +393,7 @@ func (h *Handler) newTaskPutSubscription(userID, chatID int64) {
 	subVac := h.chatsSubVacs.GetPut(chatID, &vacancy{})
 
 	// push task to queue
-	h.taskQueue.Push(func() error {
+	h.subTasks.Push(func() error {
 		if err := h.storage.PutChatSubscription(h.ctx, &model.ChatSubscription{
 			ChatID:     chatID,
 			UserID:     userID,

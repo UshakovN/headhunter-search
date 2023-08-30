@@ -18,13 +18,14 @@ func (p parseMode) String() string {
 }
 
 type Message struct {
-	MessageID int64
-	ChatID    int64
-	UserID    int64
-	UserName  string
-	Text      string
-	Command   string
-	Date      int64
+	MessageID    int64
+	ChatID       int64
+	UserID       int64
+	UserName     string
+	Text         string
+	Command      string
+	Date         int64
+	fromCallback bool
 }
 
 type SendMessage struct {
@@ -48,6 +49,10 @@ func (m *Message) IsText() bool {
 	return !m.IsCommand()
 }
 
+func (m *Message) FromCallback() bool {
+	return m.fromCallback
+}
+
 func apiCallbackToModel(cb *tg.CallbackQuery) *Message {
 	var (
 		chatID   int64
@@ -68,12 +73,13 @@ func apiCallbackToModel(cb *tg.CallbackQuery) *Message {
 	data := strings.TrimSpace(cb.Data)
 
 	return &Message{
-		ChatID:   chatID,
-		UserID:   userID,
-		UserName: userName,
-		Text:     data,
-		Command:  strings.TrimPrefix(data, "/"),
-		Date:     date,
+		ChatID:       chatID,
+		UserID:       userID,
+		UserName:     userName,
+		Text:         data,
+		Command:      strings.TrimPrefix(data, "/"),
+		Date:         date,
+		fromCallback: true,
 	}
 }
 

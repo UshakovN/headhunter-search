@@ -24,7 +24,6 @@ type Request struct {
 
 func (r *Request) WithDefault() *Request {
 	r.SearchField = "name"
-	r.OrderBy = "relevance"
 	r.Period = 14
 	return r
 }
