@@ -45,7 +45,6 @@ func main() {
 
 	go h.HandleMessagesContinuously(ctx)
 	go h.HandleSubscriptionsContinuously(ctx)
-	go h.HandleTasksContinuously(ctx)
 
 	exit := make(chan os.Signal)
 	signal.Notify(exit, syscall.SIGINT, syscall.SIGTERM)

@@ -75,12 +75,17 @@ func (c *Client) get(requestURL string, options ...Option) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cannot do get request to %s: %v", requestURL, err)
 	}
-	if code := resp.StatusCode; code != http.StatusOK {
-		return nil, fmt.Errorf("%w: got wrong status code from %s: %d", retries.ErrDoRetry, requestURL, code)
-	}
 	buf, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("cannot read response body from %s: %v", requestURL, err)
+	}
+	if code := resp.StatusCode; code != http.StatusOK {
+		err = fmt.Errorf("got wrong status code %s: %d. body: %s", req.URL.String(), code, string(buf))
+
+		if code == http.StatusForbidden {
+			err = fmt.Errorf("%w: %v", retries.ErrDoRetry, err)
+		}
+		return nil, err
 	}
 	return buf, nil
 }

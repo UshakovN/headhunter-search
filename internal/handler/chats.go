@@ -207,7 +207,7 @@ func (h *Handler) setChatsTrees() {
 				// create new task for put subscription to storage
 				h.newTaskPutSubscription(input.UserID, input.ChatID)
 				// create new chat tree for chat id
-				h.chatsTrees.NewTree(input.ChatID)
+				h.chatsTrees.RebuildTree(input.ChatID)
 
 				return messageID, nil
 			},
@@ -305,7 +305,7 @@ func (h *Handler) HandleMessages(ctx context.Context, m *telegram.Message) error
 				// delete chat state
 				h.deleteChatState(m.ChatID)
 				// create new chat tree for chat id
-				h.chatsTrees.NewTree(m.ChatID)
+				h.chatsTrees.RebuildTree(m.ChatID)
 			}
 		}()
 

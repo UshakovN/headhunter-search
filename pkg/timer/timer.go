@@ -1,50 +1,33 @@
 package timer
 
-import (
-	"sync"
-	"time"
-)
+import "time"
 
-type Timer[T comparable] interface {
-	Set(key T, timeout time.Duration)
-	Wait(key T)
+type RefreshTimer interface {
+	Stop() bool
+	Wait() <-chan time.Time
 }
 
-type timer[T comparable] struct {
-	mtx sync.RWMutex
-	m   map[T]*wait
+type wrappedTimer struct {
+	d     time.Duration
+	timer *time.Timer
 }
 
-type wait struct {
-	t time.Time
-	d time.Duration
-}
-
-func NewTimer[T comparable]() Timer[T] {
-	return &timer[T]{
-		m: map[T]*wait{},
+func NewRefreshTimer(d time.Duration, immediately bool) RefreshTimer {
+	var dur time.Duration
+	if !immediately {
+		dur = d
+	}
+	return &wrappedTimer{
+		d:     d,
+		timer: time.NewTimer(dur),
 	}
 }
 
-func (t *timer[T]) Set(key T, timeout time.Duration) {
-	t.mtx.Lock()
-	defer t.mtx.Unlock()
-
-	t.m[key] = &wait{
-		d: timeout,
-		t: time.Now().UTC(),
-	}
+func (t *wrappedTimer) Stop() bool {
+	return t.timer.Stop()
 }
 
-func (t *timer[T]) Wait(key T) {
-	t.mtx.RLock()
-	defer t.mtx.RUnlock()
-
-	if wait, ok := t.m[key]; ok {
-		now := time.Now().UTC()
-		if next := wait.t.Add(wait.d); now.Before(next) {
-			sub := next.Sub(now)
-			time.Sleep(sub)
-		}
-	}
+func (t *wrappedTimer) Wait() <-chan time.Time {
+	defer t.timer.Reset(t.d)
+	return t.timer.C
 }

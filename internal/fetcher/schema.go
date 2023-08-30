@@ -19,25 +19,20 @@ type Request struct {
 	Period      int    `json:"period,omitempty"`
 	DateFrom    string `json:"date_from,omitempty"`
 	DateTo      string `json:"date_to,omitempty"`
+	OrderBy     string `json:"order_by,omitempty"`
 }
 
-func NewVacanciesRequest(text, area, experience string, period int) *Request {
-	const (
-		page        = 0
-		perPage     = 100
-		searchField = "name"
-	)
-	return &Request{
+func (r *Request) WithDefault() *Request {
+	r.SearchField = "name"
+	r.OrderBy = "relevance"
+	r.Period = 14
+	return r
+}
 
-		Page:        page,
-		PerPage:     perPage,
-		SearchField: searchField,
-
-		Text:       text,
-		Area:       area,
-		Experience: experience,
-		Period:     period,
-	}
+func (r *Request) WithPaging(page, perPage int) *Request {
+	r.Page = page
+	r.PerPage = perPage
+	return r
 }
 
 func (r *Request) Query() (http.Query, error) {
@@ -59,7 +54,11 @@ func (r *Request) Query() (http.Query, error) {
 }
 
 type Response struct {
-	Items []*VacancyResponseItem `json:"items"`
+	Found   int                    `json:"found"`
+	Pages   int                    `json:"pages"`
+	PerPage int                    `json:"per_page"`
+	Page    int                    `json:"page"`
+	Items   []*VacancyResponseItem `json:"items"`
 }
 
 type VacancyArea struct {

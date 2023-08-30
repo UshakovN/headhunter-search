@@ -7,15 +7,13 @@ import (
 	"main/internal/fetcher"
 	"main/internal/model"
 	"main/internal/storage"
-	"main/internal/task"
 	"main/pkg/cache"
+	"main/pkg/schedule"
+	"main/pkg/task"
 	"main/pkg/telegram"
 	"main/pkg/timer"
 	"main/pkg/utils"
 	"time"
-
-	log "github.com/sirupsen/logrus"
-	"golang.org/x/sync/errgroup"
 )
 
 type Handler struct {
@@ -24,8 +22,8 @@ type Handler struct {
 	fetcher       fetcher.Fetcher
 	storage       storage.Storage
 	taskQueue     task.Queue
-	chatsTrees    *chats.Trees
-	chatsTimers   timer.Timer[int64]
+	chatsTrees    chats.Trees
+	chatsTimers   cache.MemCache[int64, timer.RefreshTimer]
 	chatsPending  cache.KeyCache[int64]
 	chatsSubVacs  cache.MemCache[int64, *vacancy]
 	chatsSentVacs cache.MemCache[int64, cache.KeyCache[string]]
@@ -40,13 +38,15 @@ func NewHandler(ctx context.Context, bot telegram.Bot, fetcher fetcher.Fetcher, 
 		fetcher:      fetcher,
 		storage:      storage,
 		taskQueue:    task.NewQueue(workers),
-		chatsTimers:  timer.NewTimer[int64](),
+		chatsTimers:  cache.NewMemCache[int64, timer.RefreshTimer](),
 		chatsSubVacs: cache.NewMemCache[int64, *vacancy](),
 		chatsPending: cache.NewKeyCache[int64](),
 	}
 	if err := h.prepareComponents(ctx); err != nil {
 		return nil, fmt.Errorf("handler cannot prepare components: %v", err)
 	}
+	go h.handleTasksContinuously(ctx)
+
 	return h, nil
 }
 
@@ -77,64 +77,71 @@ func (h *Handler) setChatsSentVacs(ctx context.Context) error {
 	return nil
 }
 
-func (h *Handler) HandleTasksContinuously(ctx context.Context) {
-	h.taskQueue.ContinuouslyHandle(ctx)
+func (h *Handler) HandleSubscriptions(ctx context.Context) error {
+	if err := h.storage.ChatsSubscriptions(ctx, func(sub *model.ChatSubscription) {
+		h.taskQueue.Push(func() error {
+			if err := h.sendSubscriptionVacancies(ctx, sub); err != nil {
+				return fmt.Errorf("cannot send subscription vacancies: %v", err)
+			}
+			return nil
+		})
+	}); err != nil {
+		return fmt.Errorf("cannot got chats subscription from storage: %v", err)
+	}
+	return nil
 }
 
 func (h *Handler) HandleSubscriptionsContinuously(ctx context.Context) {
-	const (
-		okWait     = 5 * time.Second
-		errWait    = 10 * time.Second
-		groupLimit = 100
-	)
-	g, _ := errgroup.WithContext(ctx)
-	g.SetLimit(groupLimit)
-
-	for {
-		if err := h.storage.ChatsSubscriptions(ctx, func(s *model.ChatSubscription) {
-			g.Go(func() error {
-				if err := h.sendVacanciesForSubscription(ctx, s); err != nil {
-					return fmt.Errorf("cannot send vacancies for subscription: %v", err)
-				}
-				return nil
-			})
-		}); err != nil {
-			log.Errorf("cannot got users subscriptions from storage: %v. sleep %s before next handling", err, errWait.String())
-			time.Sleep(errWait)
-			continue
-		}
-		if err := g.Wait(); err != nil {
-			log.Errorf("cannot handle users subscriptions from storage: %v. sleep %s before next handling", err, errWait.String())
-			time.Sleep(errWait)
-			continue
-		}
-		time.Sleep(okWait)
-	}
+	schedule.DoWithSchedule("10s", "30s", true, func() error {
+		return h.HandleSubscriptions(ctx)
+	})
 }
 
-func (h *Handler) sendVacanciesForSubscription(ctx context.Context, s *model.ChatSubscription) error {
+func (h *Handler) fetchVacancies(ctx context.Context, s *model.ChatSubscription) ([]*fetcher.VacancyResponseItem, error) {
 	const (
-		messageTimeout = 10 * time.Second
-		requestPeriod  = 14
+		maxDepth = 2000
+		perPage  = 100
 	)
-	req := fetcher.NewVacanciesRequest(
-		s.Keywords,
-		s.Area,
-		s.Experience,
-		requestPeriod,
-	)
-	resp, err := h.fetcher.Fetch(ctx, req)
-	if err != nil {
-		return fmt.Errorf("cannot fetch vacancies for request: %v", err)
+	req := &fetcher.Request{
+		Text:       s.Keywords,
+		Area:       s.Area,
+		Experience: s.Experience,
 	}
-	for _, item := range resp.Items {
+	var (
+		items []*fetcher.VacancyResponseItem
+		page  int
+	)
+	for {
+		resp, err := h.fetcher.Fetch(ctx, req.WithDefault().WithPaging(page, perPage))
+		if err != nil {
+			return nil, fmt.Errorf("cannot fetch vacancies for request: %v", err)
+		}
+		// collect response items
+		if len(resp.Items) > 0 {
+			items = append(items, resp.Items...)
+		}
+		// increment paging parameter
+		page++
+		// break loop if max depth exceeded
+		if resp.Found == 0 || page >= resp.Pages || page*resp.PerPage >= maxDepth {
+			break
+		}
+	}
+	return items, nil
+}
+
+func (h *Handler) sendSubscriptionVacancies(ctx context.Context, s *model.ChatSubscription) error {
+	const timeout = 15 * time.Second
+
+	items, err := h.fetchVacancies(ctx, s)
+	if err != nil {
+		return fmt.Errorf("cannot fetch vacancies: %v", err)
+	}
+	for _, item := range items {
 		// if vacancy it is wrong
 		if isWrongVacancy(item) {
 			continue
 		}
-		// wait timer for chat id
-		h.chatsTimers.Wait(s.ChatID)
-
 		// if chat id exist in pending chats
 		if h.chatsPending.Exist(s.ChatID) {
 			return nil
@@ -158,8 +165,12 @@ func (h *Handler) sendVacanciesForSubscription(ctx context.Context, s *model.Cha
 		}); err != nil {
 			return fmt.Errorf("cannot put sent vacancy to storage: %v", err)
 		}
-		// set timer for chat id
-		h.chatsTimers.Set(s.ChatID, messageTimeout)
+
+		// wait time for chat id
+		<-h.chatsTimers.GetPut(
+			s.ChatID,
+			timer.NewRefreshTimer(timeout, true),
+		).Wait()
 	}
 	return nil
 }
@@ -168,6 +179,10 @@ func (h *Handler) HandleMessagesContinuously(ctx context.Context) {
 	h.bot.HandleMessages(func(m *telegram.Message) error {
 		return h.HandleMessages(ctx, m)
 	})
+}
+
+func (h *Handler) handleTasksContinuously(ctx context.Context) {
+	h.taskQueue.ContinuouslyHandle(ctx)
 }
 
 func (h *Handler) Shutdown() {
